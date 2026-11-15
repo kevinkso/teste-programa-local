@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Teste de conexão local</title>
+<style>
+  :root { --fundo: #f3f5f8; --cartao: #fff; --texto: #1a2330; --suave: #566273; --borda: #d7dde6;
+          --ok: #17703f; --ok-fundo: #e2f3e9; --ruim: #a8221b; --ruim-fundo: #fde7e5; --acao: #0b57d0; --acao-texto: #fff;
+          --codigo: #eef1f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fundo: #11151b; --cartao: #1a2029; --texto: #e6ebf2; --suave: #9ba7b6; --borda: #2e3744;
+            --ok: #74d6a0; --ok-fundo: #143524; --ruim: #ff9087; --ruim-fundo: #3e1c1a; --acao: #8ab4f8;
+            --acao-texto: #0b1626; --codigo: #232b36; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fundo); color: var(--texto);
+         font: 16px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 8px; }
+  p { margin: 10px 0; }
+  .suave { color: var(--suave); }
+  .cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: 10px; padding: 18px; margin: 16px 0; }
+  button { font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px; border: 1px solid var(--acao);
+           background: var(--acao); color: var(--acao-texto); cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  button:focus-visible { outline: 3px solid var(--acao); outline-offset: 2px; }
+  .resultado { border-radius: 8px; padding: 12px 14px; margin-top: 14px; font-weight: 600; }
+  .resultado.ok { background: var(--ok-fundo); color: var(--ok); }
+  .resultado.ruim { background: var(--ruim-fundo); color: var(--ruim); }
+  pre { background: var(--codigo); border-radius: 8px; padding: 10px; white-space: pre-wrap; word-break: break-word;
+        font: 13px/1.45 Consolas, "Cascadia Mono", monospace; margin: 12px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Teste de conexão local</h1>
+  <p class="suave">Esta página confere se o navegador deixa uma página da internet falar com um programa de teste
+    aberto neste mesmo computador. Ela só funciona quando aberta pelo próprio programa de teste.</p>
+  <div class="cartao">
+    <p id="instrucao">Clique em <b>Testar</b>. Se o navegador perguntar se esta página pode acessar outros apps ou
+      dispositivos, clique em <b>Permitir</b>.</p>
+    <button id="testar">Testar</button>
+    <div id="resultado" class="resultado" hidden></div>
+    <pre id="tecnico" hidden></pre>
+  </div>
+</main>
+<script>
+(() => {
+  const parametros = new URLSearchParams(location.hash.slice(1));
+  const porta = Number(parametros.get('p')), codigo = parametros.get('n') || '';
+  const valido = Number.isInteger(porta) && porta > 1023 && porta < 65536 && /^[0-9a-f]{8,64}$/.test(codigo);
+  const botao = document.getElementById('testar'), resultado = document.getElementById('resultado');
+  const tecnico = document.getElementById('tecnico');
+
+  function mostrar(ok, texto, detalhes) {
+    resultado.hidden = false;
+    resultado.className = 'resultado ' + (ok ? 'ok' : 'ruim');
+    resultado.textContent = texto;
+    tecnico.hidden = false;
+    tecnico.textContent = JSON.stringify(detalhes, null, 1);
+  }
+
+  if (!valido) {
+    botao.disabled = true;
+    document.getElementById('instrucao').textContent =
+      'Esta página precisa ser aberta pelo programa de teste, que põe a porta e o código no endereço.';
+    return;
+  }
+
+  botao.addEventListener('click', async () => {
+    botao.disabled = true;
+    const base = 'http://127.0.0.1:' + porta;
+    const permissao = async (nome) => {
+      try { return (await navigator.permissions.query({ name: nome })).state; } catch (e) { return 'sem'; }
+    };
+    const r = { antes: [await permissao('local-network-access'), await permissao('loopback-network')] };
+    try {
+      const a = await fetch(base + '/ping?n=' + codigo, { cache: 'no-store' });
+      r.simples = a.status;
+      const b = await fetch(base + '/eco?n=' + codigo, {
+        method: 'POST', cache: 'no-store',
+        headers: { 'content-type': 'application/json', 'x-teste': '1' }, body: '{"ok":1}',
+      });
+      r.completa = b.status;
+    } catch (e) {
+      r.erro = String((e && e.message) || e);
+    }
+    r.depois = [await permissao('local-network-access'), await permissao('loopback-network')];
+    try {
+      await fetch(base + '/relato?n=' + codigo, { method: 'POST', cache: 'no-store', body: JSON.stringify(r) });
+    } catch (e) { /* sem conexão, não há como avisar o programa */ }
+    const ok = !r.erro && r.simples === 200 && r.completa === 200;
+    mostrar(ok, ok ? 'OK: esta página falou com o programa. Volte para a página do teste.'
+      : 'FALHOU: o navegador não deixou esta página falar com o programa. Anote a mensagem abaixo.', r);
+    botao.disabled = false;
+  });
+})();
+</script>
+</body>
+</html>
